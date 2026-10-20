@@ -1,6 +1,6 @@
 # bb voice
 
-Hands-free voice for [bb](https://getbb.app) on Android. The app shows bb's full web UI and adds a native voice loop that keeps working with the screen off or the phone locked.
+Hands-free voice for [bb](https://getbb.app) on Android and iOS (iPhone and iPad, iOS 15.1+). The app shows bb's full web UI and adds a native voice loop that keeps working with the screen off or the phone locked.
 
 Open a thread, tap the waveform button next to the composer's mic, and talk. Your words go to the thread's agent and its replies are read back to you. There are two voice modes:
 
@@ -30,12 +30,13 @@ You need a running bb, and the phone needs to reach it. Tailscale is the easiest
    cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
    adb install -r app/build/outputs/apk/release/app-release.apk
    ```
+   **iOS:** every push builds an `.ipa` in GitHub Actions (`.github/workflows/ios.yml`); download it from the run's `bb-voice-ios` artifact. Without signing secrets it is unsigned, so install it with a tool that re-signs (Sideloadly, AltStore). Add `IOS_CERTIFICATE_P12_BASE64`, `IOS_CERTIFICATE_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64` and `IOS_TEAM_ID` as repository secrets to get a signed one. To build locally on a Mac with Xcode: `npm install && npx expo run:ios --device --configuration Release`.
 4. **Open bb voice** and enter your bb URL (the same one as `BB_APP_URL`).
 
 ## Using it
 
-- **Start or stop:** tap the waveform button next to the mic in any thread. A voice bar at the bottom shows the state (listening, agent working, speaking) and has ✕ to stop. Lock the phone and it keeps going; the notification has a Stop button.
-- **Settings:** long-press the waveform button. Choose the mode, paste an OpenAI API key (stored in Android secure storage), and pick the GPT-Live voice and tool model.
+- **Start or stop:** tap the waveform button next to the mic in any thread. A voice bar at the bottom shows the state (listening, agent working, speaking) and has ✕ to stop. Lock the phone and it keeps going; the notification (Android) or Now Playing controls (iOS) can stop it.
+- **Settings:** long-press the waveform button. Choose the mode, paste an OpenAI API key (stored in Android secure storage or the iOS Keychain), and pick the GPT-Live voice and tool model.
 - **On-device mode:** pause about 1.5 seconds and what you said is sent. Say "stop", "cancel" or "never mind" to stop the agent. Tap the bar to cut off speech.
 - **GPT-Live mode:** just talk; interrupting works. Ask for work ("ask it to add tests for the parser"), threads ("what's running?", "switch to the website thread", "start a new thread in gmclip to…"), or results ("what did it say?", "is it done?").
 
@@ -49,8 +50,7 @@ GPT-Live is billed per second at about $0.05/min while connected, plus a small c
 - `src/liveSession.ts` runs GPT-Live over WebRTC with Responses delegation. Tool calls run against the bb API. Agent progress is fed back as quiet context and finished replies as spoken commentary.
 - `src/speakable.ts` turns streamed markdown into speakable sentences and skips code blocks.
 - `modules/bb-voice-native` is an Android foreground service (microphone type) with a wake lock, plus a HeadlessJS task so React Native timers keep running with the screen off. It also routes call audio to a headset or the speaker.
-
-iOS should mostly work for on-device mode, but it is untested and has no background support yet.
+- On iOS the same module keeps the audio session alive with a silent loop under the `audio` background mode, so the voice loop runs with the phone locked. The lock screen's Now Playing pause/stop control ends the session, and GPT-Live calls are moved off the earpiece to the speaker unless a headset or Bluetooth device is connected. Swipe from the left edge to go back in bb.
 
 ## License
 

@@ -9,7 +9,8 @@ type NativeModule = {
   setCallAudioRoute(active: boolean): void;
 };
 
-const native = Platform.OS === 'android' ? requireOptionalNativeModule<NativeModule>('BbVoiceNative') : null;
+const native =
+  Platform.OS === 'android' || Platform.OS === 'ios' ? requireOptionalNativeModule<NativeModule>('BbVoiceNative') : null;
 
 // The native side starts this task and finishes it on stop. It never resolves on
 // its own; its only job is to keep React Native's JS timers running in background.
@@ -35,7 +36,8 @@ export function setCallAudioRoute(active: boolean) {
   native?.setCallAudioRoute(active);
 }
 
-// Fired by the notification's Stop button (works from the lock screen).
+// Fired by the notification's Stop button on Android and the Now Playing
+// pause/stop controls on iOS (both work from the lock screen).
 export function onStopRequested(fn: () => void) {
   return native?.addListener('onStopRequested', fn) ?? { remove() {} };
 }

@@ -14,10 +14,25 @@
     },
     "ios": {
       "bundleIdentifier": "net.techfren.bbvoice",
+      "buildNumber": "1",
       "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
+        ],
+        "NSLocalNetworkUsageDescription": "bb voice connects to your bb server on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        },
+        "UISupportedInterfaceOrientations~ipad": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationPortraitUpsideDown",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
         ]
       }
     },
@@ -49,7 +64,13 @@
           ]
         }
       ],
-      "@config-plugins/react-native-webrtc",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "microphonePermission": "bb voice listens so you can talk to your agents hands-free.",
+          "cameraPermission": "bb voice lets pages in bb use the camera when you allow it."
+        }
+      ],
       "expo-secure-store"
     ]
   }

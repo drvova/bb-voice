@@ -8,7 +8,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, BackHandler, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  AppState,
+  BackHandler,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { onStopRequested } from './modules/bb-voice-native/src';
 import { BbClient, threadLabel } from './src/bb';
@@ -20,7 +33,22 @@ const KEY_SERVER = 'bbvoice.server';
 
 type Active = { threadId: string; title: string; mode: VoiceMode; session: VoiceEngine };
 
+const IOS = Platform.OS === 'ios';
+
+// iPhones and iPads differ in notch, Dynamic Island, home indicator and
+// landscape insets, so iOS pads by the real safe area. Android keeps its fixed padding.
+const IOS_MODAL_ORIENTATIONS = ['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right'] as const;
+
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <Main />
+    </SafeAreaProvider>
+  );
+}
+
+function Main() {
+  const insets = useSafeAreaInsets();
   const [server, setServer] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,7 +61,12 @@ export default function App() {
   }, []);
 
   return (
-    <View style={styles.root}>
+    <View
+      style={[
+        styles.root,
+        IOS && { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right },
+      ]}
+    >
       <StatusBar style="light" />
       {server === null ? null : server ? (
         <Shell key={server} server={server} onChangeServer={save} />
@@ -47,7 +80,7 @@ export default function App() {
 function ServerSetup({ initial, onSave, error }: { initial: string; onSave: (url: string) => void; error?: string }) {
   const [url, setUrl] = useState(initial);
   return (
-    <View style={styles.setup}>
+    <KeyboardAvoidingView style={styles.setup} behavior="padding" enabled={IOS}>
       <Text style={styles.h1}>bb server</Text>
       <Text style={styles.muted}>Your bb app URL, reachable from this phone (e.g. over Tailscale).</Text>
       <TextInput
@@ -65,7 +98,7 @@ function ServerSetup({ initial, onSave, error }: { initial: string; onSave: (url
       <Pressable style={styles.button} onPress={() => url.trim() && onSave(url.trim())}>
         <Text style={styles.buttonText}>Connect</Text>
       </Pressable>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -219,6 +252,12 @@ function Shell({ server, onChangeServer }: { server: string; onChangeServer: (ur
           canGoBack.current = nav.canGoBack;
         }}
         onError={(e) => setLoadError(`Couldn't load ${server}: ${e.nativeEvent.description}`)}
+        // iOS kills a backgrounded WKWebView's content process under memory
+        // pressure, leaving a blank page; reload it.
+        onContentProcessDidTerminate={() => web.current?.reload()}
+        allowsBackForwardNavigationGestures
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
         mediaCapturePermissionGrantType="grant"
         allowsInlineMediaPlayback
         setSupportMultipleWindows={false}
@@ -306,6 +345,7 @@ function SettingsSheet(props: {
   const [voice, setVoice] = useState(props.settings.liveVoice);
   const [delegateModel, setDelegateModel] = useState(props.settings.delegateModel);
   const [key, setKey] = useState('');
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (!props.visible) return;
@@ -317,60 +357,73 @@ function SettingsSheet(props: {
   }, [props.visible, props.settings]);
 
   return (
-    <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
-      <Pressable style={styles.sheetBackdrop} onPress={props.onClose} />
-      <View style={styles.sheet}>
-        <Text style={styles.h1}>Realtime voice</Text>
-        <View style={styles.segment}>
-          {(['live', 'classic'] as const).map((m) => (
-            <Pressable key={m} style={[styles.segmentItem, mode === m && styles.segmentActive]} onPress={() => setMode(m)}>
-              <Text style={styles.segmentText}>{m === 'live' ? 'GPT-Live' : 'On-device'}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Text style={styles.muted}>
-          {mode === 'live'
-            ? 'OpenAI GPT-Live talks with you and hands work to the bb agent. Billed per minute to your OpenAI key.'
-            : 'Free on-device speech recognition and text-to-speech.'}
-        </Text>
-        {mode === 'live' ? (
-          <>
-            <Text style={styles.label}>OpenAI API key {props.settings.hasApiKey ? '(saved; leave blank to keep)' : ''}</Text>
-            <TextInput
-              style={styles.input}
-              value={key}
-              onChangeText={setKey}
-              placeholder={props.settings.hasApiKey ? '••••••••' : 'sk-...'}
-              placeholderTextColor="#666"
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Text style={styles.label}>Model</Text>
-            <TextInput style={styles.input} value={model} onChangeText={setModel} autoCapitalize="none" autoCorrect={false} />
-            <Text style={styles.label}>Tool model (writes agent messages, runs bb tools)</Text>
-            <TextInput style={styles.input} value={delegateModel} onChangeText={setDelegateModel} autoCapitalize="none" autoCorrect={false} />
-            <Text style={styles.label}>Voice</Text>
-            <Dropdown value={voice} options={LIVE_VOICES} onChange={setVoice} />
-          </>
-        ) : null}
-        <Pressable
-          style={styles.button}
-          onPress={() =>
-            props.onSave(
-              {
-                mode,
-                liveModel: model.trim() || DEFAULT_APP_SETTINGS.liveModel,
-                liveVoice: voice.trim() || DEFAULT_APP_SETTINGS.liveVoice,
-                delegateModel: delegateModel.trim() || DEFAULT_APP_SETTINGS.delegateModel,
-              },
-              key.trim() ? key.trim() : undefined,
-            )
-          }
+    <Modal
+      visible={props.visible}
+      transparent
+      animationType="slide"
+      onRequestClose={props.onClose}
+      supportedOrientations={IOS ? [...IOS_MODAL_ORIENTATIONS] : undefined}
+    >
+      <KeyboardAvoidingView style={styles.flex1} behavior="padding" enabled={IOS}>
+        <Pressable style={styles.sheetBackdrop} onPress={props.onClose} />
+        <View
+          style={[
+            styles.sheet,
+            IOS && { paddingBottom: Math.max(36, insets.bottom + 16), paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right },
+          ]}
         >
-          <Text style={styles.buttonText}>Save</Text>
-        </Pressable>
-      </View>
+          <Text style={styles.h1}>Realtime voice</Text>
+          <View style={styles.segment}>
+            {(['live', 'classic'] as const).map((m) => (
+              <Pressable key={m} style={[styles.segmentItem, mode === m && styles.segmentActive]} onPress={() => setMode(m)}>
+                <Text style={styles.segmentText}>{m === 'live' ? 'GPT-Live' : 'On-device'}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.muted}>
+            {mode === 'live'
+              ? 'OpenAI GPT-Live talks with you and hands work to the bb agent. Billed per minute to your OpenAI key.'
+              : 'Free on-device speech recognition and text-to-speech.'}
+          </Text>
+          {mode === 'live' ? (
+            <>
+              <Text style={styles.label}>OpenAI API key {props.settings.hasApiKey ? '(saved; leave blank to keep)' : ''}</Text>
+              <TextInput
+                style={styles.input}
+                value={key}
+                onChangeText={setKey}
+                placeholder={props.settings.hasApiKey ? '••••••••' : 'sk-...'}
+                placeholderTextColor="#666"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Text style={styles.label}>Model</Text>
+              <TextInput style={styles.input} value={model} onChangeText={setModel} autoCapitalize="none" autoCorrect={false} />
+              <Text style={styles.label}>Tool model (writes agent messages, runs bb tools)</Text>
+              <TextInput style={styles.input} value={delegateModel} onChangeText={setDelegateModel} autoCapitalize="none" autoCorrect={false} />
+              <Text style={styles.label}>Voice</Text>
+              <Dropdown value={voice} options={LIVE_VOICES} onChange={setVoice} />
+            </>
+          ) : null}
+          <Pressable
+            style={styles.button}
+            onPress={() =>
+              props.onSave(
+                {
+                  mode,
+                  liveModel: model.trim() || DEFAULT_APP_SETTINGS.liveModel,
+                  liveVoice: voice.trim() || DEFAULT_APP_SETTINGS.liveVoice,
+                  delegateModel: delegateModel.trim() || DEFAULT_APP_SETTINGS.delegateModel,
+                },
+                key.trim() ? key.trim() : undefined,
+              )
+            }
+          >
+            <Text style={styles.buttonText}>Save</Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -423,6 +476,7 @@ function VoiceBar(props: {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#111', paddingTop: 36, paddingBottom: 20 },
   flex: { flex: 1, backgroundColor: '#111' },
+  flex1: { flex: 1 },
   setup: { flex: 1, padding: 24, justifyContent: 'center', gap: 12 },
   h1: { color: '#eee', fontSize: 22, fontWeight: '600' },
   muted: { color: '#888', fontSize: 14 },

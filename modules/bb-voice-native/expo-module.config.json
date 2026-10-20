@@ -1,4 +1,5 @@
 {
-  "platforms": ["android"],
-  "android": { "modules": ["expo.modules.bbvoicenative.BbVoiceNativeModule"] }
+  "platforms": ["android", "apple"],
+  "android": { "modules": ["expo.modules.bbvoicenative.BbVoiceNativeModule"] },
+  "apple": { "modules": ["BbVoiceNativeModule"] }
 }
