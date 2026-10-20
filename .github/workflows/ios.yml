@@ -1,4 +1,5 @@
-# Builds the iOS app and uploads the .ipa as a workflow artifact.
+# Builds the iOS app and uploads the .ipa as a workflow artifact, and runs the
+# app end to end in iPhone and iPad simulators against e2e/mock-bb.js.
 #
 # Without signing secrets it produces an unsigned .ipa, which you can sideload
 # with a tool that re-signs it (Sideloadly, AltStore) or sign yourself.
@@ -49,6 +50,9 @@ jobs:
 
       - name: Typecheck
         run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx expo lint
 
       - name: Show Xcode
         run: xcodebuild -version
@@ -163,3 +167,107 @@ jobs:
       - name: Remove signing keychain
         if: always() && env.HAS_SIGNING == 'true'
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+
+  simulator:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      SCHEME: bbvoice
+      BUNDLE_ID: net.techfren.bbvoice
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: 240000
+      MAESTRO_CLI_NO_ANALYTICS: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('package-lock.json', 'modules/**/*.podspec') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - name: Generate iOS project
+        run: npx expo prebuild --platform ios --clean
+        env:
+          CI: 1
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -workspace "ios/$SCHEME.xcworkspace" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/xcodebuild-sim.log" | grep -E '^(\*\*|error|.*: error:)' || true
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphonesimulator/$SCHEME.app"
+          test -d "$APP"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Start mock bb server
+        run: |
+          mkdir -p e2e-out
+          MOCK_LOG="$GITHUB_WORKSPACE/e2e-out/mock-bb.log" nohup node e2e/mock-bb.js 38886 > e2e-out/mock-bb.stdout 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:38886/api/v1/threads >/dev/null && break; sleep 0.5; done
+
+      - name: Run on simulators
+        run: |
+          xcrun simctl list devices available
+          # Newest iPhone, smallest current iPhone, and an iPad.
+          pick() { xcrun simctl list devices available -j | python3 -c "
+          import json, re, sys
+          pattern = re.compile(sys.argv[1])
+          devices = [d for rt, ds in json.load(sys.stdin)['devices'].items() if 'iOS' in rt for d in ds]
+          match = [d for d in devices if pattern.search(d['name'])]
+          print(match[-1]['udid'] + ' ' + match[-1]['name'].replace(' ', '_') if match else '')
+          " "$1"; }
+          FAILED=0
+          for pattern in 'iPhone \d+ Pro Max' 'iPhone (SE|\d+e|\d+ mini)|iPhone \d+$' 'iPad Pro'; do
+            read -r UDID NAME <<< "$(pick "$pattern")"
+            [ -z "$UDID" ] && { echo "::warning::no simulator matches $pattern"; continue; }
+            echo "::group::$NAME ($UDID)"
+            xcrun simctl boot "$UDID" || true
+            xcrun simctl bootstatus "$UDID" -b
+            xcrun simctl install "$UDID" "$APP"
+            xcrun simctl privacy "$UDID" grant microphone "$BUNDLE_ID" || true
+            mkdir -p "e2e-out/$NAME"
+            if ! maestro --device "$UDID" test e2e/hands-free.yaml -e DEVICE="$NAME" \
+                --test-output-dir "e2e-out/$NAME" --debug-output "e2e-out/$NAME/debug"; then
+              echo "::error::hands-free flow failed on $NAME"
+              FAILED=1
+            fi
+            if [[ "$NAME" == iPad* ]]; then
+              maestro --device "$UDID" test e2e/landscape.yaml -e DEVICE="$NAME" \
+                --test-output-dir "e2e-out/$NAME" || { echo "::error::landscape flow failed on $NAME"; FAILED=1; }
+            fi
+            xcrun simctl io "$UDID" screenshot "e2e-out/$NAME/final.png" || true
+            xcrun simctl spawn "$UDID" log show --last 10m --style compact --predicate 'process == "bbvoice"' > "e2e-out/$NAME/app.log" 2>/dev/null || true
+            xcrun simctl shutdown "$UDID" || true
+            echo "::endgroup::"
+          done
+          find . -maxdepth 2 -name '*.png' -newer package.json -not -path './e2e-out/*' -exec mv {} e2e-out/ \; || true
+          echo "--- mock bb requests ---"; cat e2e-out/mock-bb.log
+          exit $FAILED
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-results
+          path: |
+            e2e-out
+            ${{ runner.temp }}/xcodebuild-sim.log

@@ -1,0 +1,16 @@
+# iPad: the app follows rotation and keeps its layout inside the safe area.
+appId: net.techfren.bbvoice
+env:
+  DEVICE: device
+---
+- launchApp
+- extendedWaitUntil:
+    visible: Mock bb thread
+    timeout: 30000
+- setOrientation: LANDSCAPE_LEFT
+- tapOn: Voice settings
+- extendedWaitUntil:
+    visible: Realtime voice
+    timeout: 10000
+- takeScreenshot: ${DEVICE}-08-landscape-settings
+- setOrientation: PORTRAIT

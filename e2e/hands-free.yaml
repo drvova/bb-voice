@@ -1,0 +1,83 @@
+# End-to-end run against e2e/mock-bb.js: server setup, the bb page in the
+# WebView, the settings sheet, an on-device voice session with a spoken agent
+# reply, and stopping it. Screenshots are prefixed with ${DEVICE}.
+appId: net.techfren.bbvoice
+env:
+  DEVICE: device
+  SERVER: http://127.0.0.1:38886
+---
+- launchApp:
+    clearState: true
+    permissions:
+      all: allow
+- extendedWaitUntil:
+    visible: bb server
+    timeout: 30000
+- takeScreenshot: ${DEVICE}-01-setup
+- tapOn:
+    id: server-url
+- inputText: ${SERVER}
+- takeScreenshot: ${DEVICE}-02-keyboard
+- tapOn: Connect
+
+# The bb page loads and the shell's bridge reaches it.
+- extendedWaitUntil:
+    visible: Mock bb thread
+    timeout: 30000
+- extendedWaitUntil:
+    visible: 'voice state: off'
+    timeout: 10000
+- takeScreenshot: ${DEVICE}-03-webview
+
+# Default mode is GPT-Live with no API key, so the toggle opens settings.
+- tapOn: Talk hands-free
+- extendedWaitUntil:
+    visible: Realtime voice
+    timeout: 10000
+- takeScreenshot: ${DEVICE}-04-settings
+- tapOn: On-device
+- tapOn: Save
+
+# Microphone and speech recognition prompts, if the simulator still shows them.
+- repeat:
+    times: 3
+    commands:
+      - tapOn:
+          text: (Allow|OK)
+          optional: true
+- extendedWaitUntil:
+    visible: 'Listening.*'
+    timeout: 20000
+- extendedWaitUntil:
+    visible: 'voice state: (listening|hearing)'
+    timeout: 10000
+- takeScreenshot: ${DEVICE}-05-listening
+
+# The agent answers; the app reads it out.
+- tapOn: Simulate agent reply
+- extendedWaitUntil:
+    visible: 'Speaking.*'
+    timeout: 15000
+- takeScreenshot: ${DEVICE}-06-speaking
+
+# Stop from the voice bar.
+- tapOn:
+    id: Stop hands-free
+    optional: true
+- tapOn:
+    text: ✕
+    optional: true
+- extendedWaitUntil:
+    notVisible: '(Listening|Speaking).*'
+    timeout: 10000
+- extendedWaitUntil:
+    visible: 'voice state: off'
+    timeout: 10000
+- takeScreenshot: ${DEVICE}-07-stopped
+
+# The server URL is remembered across launches.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: Mock bb thread
+    timeout: 30000

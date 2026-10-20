@@ -84,6 +84,7 @@ function ServerSetup({ initial, onSave, error }: { initial: string; onSave: (url
       <Text style={styles.h1}>bb server</Text>
       <Text style={styles.muted}>Your bb app URL, reachable from this phone (e.g. over Tailscale).</Text>
       <TextInput
+        testID="server-url"
         style={styles.input}
         value={url}
         onChangeText={setUrl}
