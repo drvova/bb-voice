@@ -61,13 +61,8 @@ env:
     timeout: 15000
 - takeScreenshot: ${DEVICE}-06-speaking
 
-# Stop from the voice bar.
-- tapOn:
-    id: Stop hands-free
-    optional: true
-- tapOn:
-    text: ✕
-    optional: true
+# Stop from the voice bar (matched by its accessibility label).
+- tapOn: Stop hands-free
 - extendedWaitUntil:
     notVisible: '(Listening|Speaking).*'
     timeout: 10000

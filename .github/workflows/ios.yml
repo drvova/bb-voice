@@ -174,7 +174,7 @@ jobs:
     env:
       SCHEME: bbvoice
       BUNDLE_ID: net.techfren.bbvoice
-      MAESTRO_DRIVER_STARTUP_TIMEOUT: 240000
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: 360000
       MAESTRO_CLI_NO_ANALYTICS: 1
     steps:
       - uses: actions/checkout@v4
@@ -239,6 +239,20 @@ jobs:
           match = [d for d in devices if pattern.search(d['name'])]
           print(match[-1]['udid'] + ' ' + match[-1]['name'].replace(' ', '_') if match else '')
           " "$1"; }
+          # The XCUITest driver sometimes fails to come up on a loaded runner; retry
+          # a flow once when it never started.
+          flow() {
+            local udid=$1 name=$2 file=$3 out
+            for attempt in 1 2; do
+              out="e2e-out/$name/$(basename "$file" .yaml)-$attempt.log"
+              maestro --device "$udid" test "$file" -e DEVICE="$name" \
+                --test-output-dir "e2e-out/$name" --debug-output "e2e-out/$name/debug" 2>&1 | tee "$out"
+              [ "${PIPESTATUS[0]}" = 0 ] && return 0
+              grep -q 'driver not ready' "$out" || return 1
+              echo "::warning::Maestro driver did not start on $name; retrying"
+            done
+            return 1
+          }
           FAILED=0
           for pattern in 'iPhone \d+ Pro Max' 'iPhone (SE|\d+e|\d+ mini)|iPhone \d+$' 'iPad Pro'; do
             read -r UDID NAME <<< "$(pick "$pattern")"
@@ -249,14 +263,9 @@ jobs:
             xcrun simctl install "$UDID" "$APP"
             xcrun simctl privacy "$UDID" grant microphone "$BUNDLE_ID" || true
             mkdir -p "e2e-out/$NAME"
-            if ! maestro --device "$UDID" test e2e/hands-free.yaml -e DEVICE="$NAME" \
-                --test-output-dir "e2e-out/$NAME" --debug-output "e2e-out/$NAME/debug"; then
-              echo "::error::hands-free flow failed on $NAME"
-              FAILED=1
-            fi
+            flow "$UDID" "$NAME" e2e/hands-free.yaml || { echo "::error::hands-free flow failed on $NAME"; FAILED=1; }
             if [[ "$NAME" == iPad* ]]; then
-              maestro --device "$UDID" test e2e/landscape.yaml -e DEVICE="$NAME" \
-                --test-output-dir "e2e-out/$NAME" || { echo "::error::landscape flow failed on $NAME"; FAILED=1; }
+              flow "$UDID" "$NAME" e2e/landscape.yaml || { echo "::error::landscape flow failed on $NAME"; FAILED=1; }
             fi
             xcrun simctl io "$UDID" screenshot "e2e-out/$NAME/final.png" || true
             xcrun simctl spawn "$UDID" log show --last 10m --style compact --predicate 'process == "bbvoice"' > "e2e-out/$NAME/app.log" 2>/dev/null || true
