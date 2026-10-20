@@ -208,10 +208,13 @@ jobs:
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
             | tee "$RUNNER_TEMP/xcodebuild-sim.log" | grep -E '^(\*\*|error|.*: error:)' || true
           APP="$RUNNER_TEMP/dd/Build/Products/Release-iphonesimulator/$SCHEME.app"
           test -d "$APP"
+          # Ad-hoc signed so the Keychain (expo-secure-store) works like on a device.
+          codesign -d --entitlements - "$APP" || true
           echo "APP=$APP" >> "$GITHUB_ENV"
 
       - name: Install Maestro
@@ -257,6 +260,8 @@ jobs:
             fi
             xcrun simctl io "$UDID" screenshot "e2e-out/$NAME/final.png" || true
             xcrun simctl spawn "$UDID" log show --last 10m --style compact --predicate 'process == "bbvoice"' > "e2e-out/$NAME/app.log" 2>/dev/null || true
+            echo "--- app log ($NAME): JS, errors, keychain, audio ---"
+            grep -E 'ReactNativeJS|bbvoice\]|rror|xception|eychain|34018|AVAudio' "e2e-out/$NAME/app.log" | tail -80 || true
             xcrun simctl shutdown "$UDID" || true
             echo "::endgroup::"
           done

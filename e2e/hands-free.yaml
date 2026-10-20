@@ -20,10 +20,11 @@ env:
 - takeScreenshot: ${DEVICE}-02-keyboard
 - tapOn: Connect
 
-# The bb page loads and the shell's bridge reaches it.
+# The bb page loads and the shell's bridge reaches it. WebKit's first start on
+# a freshly booted simulator can take most of a minute.
 - extendedWaitUntil:
     visible: Mock bb thread
-    timeout: 30000
+    timeout: 90000
 - extendedWaitUntil:
     visible: 'voice state: off'
     timeout: 10000
